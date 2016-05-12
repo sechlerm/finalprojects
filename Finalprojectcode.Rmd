@@ -1,0 +1,83 @@
+---
+title: "Sechler Final Project"
+author: "Marybeth Sechler"
+date: "May 11, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(limma)
+library(ggplot2)
+library(oligo)
+library(tidyr)
+library(dplyr)
+library(base)
+
+setwd("~/Desktop/GAW/Final Project/finalprojects/rawdata")
+celpath="~/Desktop/GAW/Final Project/finalprojects/rawdata"
+```
+
+## R Markdown
+
+```{r microarray analysis}
+#read in the cel files
+celFiles= list.celfiles(celpath)
+affyRaw <- read.celfiles(celFiles)
+
+#rma normalizes the dataset, stands for Robust Multi-array Average
+eset <-rma(affyRaw)
+
+#write the data into a format to be used
+write.exprs(eset,file="arraydata.txt")
+
+#add annotation package
+library(hugene11sttranscriptcluster.db)
+
+#now I need to merge my objects into a data frame and insert the annotation information
+my_frame <- data.frame(exprs(eset))
+
+
+Annot <- data.frame(ACCNUM=sapply(contents(hugene11sttranscriptclusterACCNUM), paste, collapse=", "), SYMBOL=sapply(contents(hugene11sttranscriptclusterSYMBOL), paste, collapse=", "), GENENAME=sapply(contents(hugene11sttranscriptclusterGENENAME), paste, collapse=", "))
+
+#merge the annotation with the data table
+all <- merge(Annot, my_frame, by.x=0, by.y=0, all=T)
+#write.table(all,file="annotated.data.csv",sep="\t")
+
+write.csv(all, file = "annotated.data.csv")
+```
+
+```{r tidy the set}
+
+warning=FALSE
+#now I have an annotated data set and I want to tidy it up to actually use
+csv.data <- read.csv("annotated.data.csv")
+names(csv.data)[2] <- "ID"
+csv.data$X <- NULL
+
+tidy.data <- csv.data %>% tbl_df %>% gather(colnames, value, -ID, -ACCNUM, -SYMBOL, -GENENAME) %>% separate(colnames, into = c('Cell_Line', 'Vector','Replicate'))
+
+```
+
+```{r find differences}
+
+tidy.data %>% group_by(ID, SYMBOL, Vector) %>% summarize (mean.value = mean(value))  %>% spread(Vector, mean.value) %>% summarize(scram, KD = mean(sh150, sh152)) %>% mutate(ratio = KD/scram, logfold = log2(KD/scram)) %>% filter(SYMBOL != 'NA' & !grepl('LOC*', SYMBOL) & logfold <= -log2(1.5)) %>% ungroup() %>% arrange(logfold) -> data.list
+
+tidy.data %>% group_by(ID, SYMBOL, Vector) %>% summarize (mean.value = mean(value))  %>% spread(Vector, mean.value) %>% summarize(scram, KD = mean(sh150, sh152)) %>% mutate(ratio = KD/scram, logfold = log2(KD/scram)) %>% filter(SYMBOL != 'NA' & !grepl('LOC*', SYMBOL)) %>% ungroup() %>% arrange(logfold) %>% head(25) -> long.list
+
+```
+
+
+
+## Including Plots
+
+
+```{r differential genes}
+
+ggplot(data.list,aes(reorder(SYMBOL, logfold), logfold)) +  geom_bar(stat="identity") + labs(y='Log2 Fold Expression Over Scrambled Control', x='Gene Name')  + coord_flip() + theme(axis.text.y = element_text(size=rel(2)), axis.text.x = element_text(size=rel(2)), axis.title.x = element_text(size=rel(2)), axis.title.y =element_text(size=rel(2)))
+
+ggplot(long.list,aes(reorder(SYMBOL, logfold), logfold)) +  geom_bar(stat="identity") + labs(y='Log2 Fold Expression Over Scrambled Control', x='Gene Name')  + coord_flip() + theme(axis.text.y = element_text(size=rel(1.5)), axis.text.x = element_text(size=rel(1.5)), axis.title.x = element_text(size=rel(1.5)), axis.title.y =element_text(size=rel(1.5)))
+```
+
+
